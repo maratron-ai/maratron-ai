@@ -1,15 +1,10 @@
-from typing import Any
 import os
-import httpx
 import asyncpg
+import uuid
 from mcp.server.fastmcp import FastMCP
 
-# Initialize FastMCP server
-mcp = FastMCP("weather")
-
-# Constants
-NWS_API_BASE = "https://api.weather.gov"
-USER_AGENT = "weather-app/1.0"
+# Initialize FastMCP server focused on database utilities
+mcp = FastMCP("database")
 
 # Database connection URL
 DATABASE_URL = os.getenv(
@@ -21,6 +16,13 @@ DATABASE_URL = os.getenv(
 DB_POOL: asyncpg.Pool | None = None
 
 
+def _quote_ident(name: str) -> str:
+    """Safely quote an SQL identifier."""
+    if not name.replace("_", "").isalnum():
+        raise ValueError("invalid identifier")
+    return f'"{name}"'
+
+
 async def get_pool() -> asyncpg.Pool:
     """Get or create the asyncpg connection pool."""
     global DB_POOL
@@ -29,86 +31,119 @@ async def get_pool() -> asyncpg.Pool:
     return DB_POOL
 
 
-async def make_nws_request(url: str) -> dict[str, Any] | None:
-    """Make a request to the NWS API with proper error handling."""
-    headers = {
-        "User-Agent": USER_AGENT,
-        "Accept": "application/geo+json"
-    }
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(url, headers=headers, timeout=30.0)
-            response.raise_for_status()
-            return response.json()
-        except Exception:
-            return None
+@mcp.tool()
+async def list_tables() -> str:
+    """List all tables in the public schema."""
+    pool = await get_pool()
+    try:
+        rows = await pool.fetch(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema='public' ORDER BY table_name"
+        )
+    except Exception as e:
+        return f"Database error: {e}"
 
-def format_alert(feature: dict) -> str:
-    """Format an alert feature into a readable string."""
-    props = feature["properties"]
-    return f"""
-Event: {props.get('event', 'Unknown')}
-Area: {props.get('areaDesc', 'Unknown')}
-Severity: {props.get('severity', 'Unknown')}
-Description: {props.get('description', 'No description available')}
-Instructions: {props.get('instruction', 'No specific instructions provided')}
-"""
+    if not rows:
+        return "No tables found."
+
+    return "\n".join(row["table_name"] for row in rows)
 
 
 @mcp.tool()
-async def get_alerts(state: str) -> str:
-    """Get weather alerts for a US state.
+async def describe_table(table_name: str) -> str:
+    """Describe columns for a table."""
+    pool = await get_pool()
+    try:
+        rows = await pool.fetch(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_name=$1 ORDER BY ordinal_position",
+            table_name,
+        )
+    except Exception as e:
+        return f"Database error: {e}"
 
-    Args:
-        state: Two-letter US state code (e.g. CA, NY)
-    """
-    url = f"{NWS_API_BASE}/alerts/active/area/{state}"
-    data = await make_nws_request(url)
+    if not rows:
+        return f"Table '{table_name}' not found."
 
-    if not data or "features" not in data:
-        return "Unable to fetch alerts or no alerts found."
+    return "\n".join(f"{r['column_name']}: {r['data_type']}" for r in rows)
 
-    if not data["features"]:
-        return "No active alerts for this state."
-
-    alerts = [format_alert(feature) for feature in data["features"]]
-    return "\n---\n".join(alerts)
 
 @mcp.tool()
-async def get_forecast(latitude: float, longitude: float) -> str:
-    """Get weather forecast for a location.
+async def add_user(name: str, email: str) -> str:
+    """Insert a new user into the database."""
+    pool = await get_pool()
+    user_id = str(uuid.uuid4())
+    try:
+        await pool.execute(
+            'INSERT INTO "Users" (id, name, email, "updatedAt") '
+            'VALUES ($1, $2, $3, NOW())',
+            user_id,
+            name,
+            email,
+        )
+    except Exception as e:
+        return f"Database error: {e}"
 
-    Args:
-        latitude: Latitude of the location
-        longitude: Longitude of the location
-    """
-    # First get the forecast grid endpoint
-    points_url = f"{NWS_API_BASE}/points/{latitude},{longitude}"
-    points_data = await make_nws_request(points_url)
+    return f"Inserted user with id {user_id}."
 
-    if not points_data:
-        return "Unable to fetch forecast data for this location."
 
-    # Get the forecast URL from the points response
-    forecast_url = points_data["properties"]["forecast"]
-    forecast_data = await make_nws_request(forecast_url)
+@mcp.tool()
+async def count_rows(table_name: str) -> str:
+    """Return the number of rows in a table."""
+    pool = await get_pool()
+    try:
+        ident = _quote_ident(table_name)
+        row = await pool.fetchrow(f'SELECT COUNT(*) AS cnt FROM {ident}')
+    except Exception as e:
+        return f"Database error: {e}"
 
-    if not forecast_data:
-        return "Unable to fetch detailed forecast."
+    return f"{row['cnt']} rows in {table_name}" if row else "Table not found."
 
-    # Format the periods into a readable forecast
-    periods = forecast_data["properties"]["periods"]
-    forecasts = []
-    for period in periods[:5]:  # Only show next 5 periods
-        forecast = f"""
-{period['name']}:
-Temperature: {period['temperature']}°{period['temperatureUnit']}
-Wind: {period['windSpeed']} {period['windDirection']}
-Forecast: {period['detailedForecast']}
-"""
-        forecasts.append(forecast)
 
-    return "\n---\n".join(forecasts)
+@mcp.tool()
+async def add_run(user_id: str, date: str, duration: str, distance: float,
+                  distance_unit: str = "miles") -> str:
+    """Insert a minimal run record."""
+    pool = await get_pool()
+    run_id = str(uuid.uuid4())
+    try:
+        await pool.execute(
+            'INSERT INTO "Runs" (id, date, duration, distance, "distanceUnit", '
+            '"updatedAt", "userId") '
+            'VALUES ($1, $2, $3, $4, $5, NOW(), $6)',
+            run_id,
+            date,
+            duration,
+            distance,
+            distance_unit,
+            user_id,
+        )
+    except Exception as e:
+        return f"Database error: {e}"
+
+    return f"Inserted run with id {run_id}."
+
+
+@mcp.tool()
+async def list_recent_runs(limit: int = 5) -> str:
+    """List recent runs with date and distance."""
+    pool = await get_pool()
+    try:
+        rows = await pool.fetch(
+            'SELECT date, distance, "distanceUnit" FROM "Runs" '
+            'ORDER BY date DESC LIMIT $1',
+            limit,
+        )
+    except Exception as e:
+        return f"Database error: {e}"
+
+    if not rows:
+        return "No runs found."
+
+    return "\n".join(
+        f"{row['date'].date()}: {row['distance']} {row['distanceUnit']}"
+        for row in rows
+    )
 
 
 @mcp.tool()
