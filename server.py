@@ -1,82 +1,97 @@
-import os
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from typing import Any, AsyncIterator
+from typing import Any
+import httpx
+from mcp.server.fastmcp import FastMCP
 
-import asyncpg
-from mcp.server.fastmcp import Context, FastMCP
+# Initialize FastMCP server
+mcp = FastMCP("weather")
 
-
-@dataclass
-class AppContext:
-    pool: asyncpg.Pool
+# Constants
+NWS_API_BASE = "https://api.weather.gov"
+USER_AGENT = "weather-app/1.0"
 
 
-async def create_pool() -> asyncpg.Pool:
-    return await asyncpg.create_pool(
-        host=os.getenv("PGHOST", "localhost"),
-        port=int(os.getenv("PGPORT", "5432")),
-        user=os.getenv("PGUSER", "postgres"),
-        password=os.getenv("PGPASSWORD", ""),
-        database=os.getenv("PGDATABASE", "postgres"),
-    )
+async def make_nws_request(url: str) -> dict[str, Any] | None:
+    """Make a request to the NWS API with proper error handling."""
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/geo+json"
+    }
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, headers=headers, timeout=30.0)
+            response.raise_for_status()
+            return response.json()
+        except Exception:
+            return None
 
-
-@asynccontextmanager
-async def lifespan(app: FastMCP) -> AsyncIterator[AppContext]:
-    pool = await create_pool()
-    # Ensure chat table exists
-    async with pool.acquire() as conn:
-        await conn.execute(
-            """CREATE TABLE IF NOT EXISTS messages (
-                   id SERIAL PRIMARY KEY,
-                   chat_id TEXT NOT NULL,
-                   sender TEXT NOT NULL,
-                   content TEXT NOT NULL,
-                   created_at TIMESTAMP DEFAULT NOW()
-               )"""
-        )
-    try:
-        yield AppContext(pool=pool)
-    finally:
-        await pool.close()
-
-
-mcp = FastMCP("Chat Server", lifespan=lifespan)
+def format_alert(feature: dict) -> str:
+    """Format an alert feature into a readable string."""
+    props = feature["properties"]
+    return f"""
+Event: {props.get('event', 'Unknown')}
+Area: {props.get('areaDesc', 'Unknown')}
+Severity: {props.get('severity', 'Unknown')}
+Description: {props.get('description', 'No description available')}
+Instructions: {props.get('instruction', 'No specific instructions provided')}
+"""
 
 
 @mcp.tool()
-async def send_message(chat_id: str, sender: str, content: str, ctx: Context) -> str:
-    """Store a chat message in the database."""
-    pool = ctx.request_context.lifespan_context.pool
-    await pool.execute(
-        "INSERT INTO messages (chat_id, sender, content) VALUES ($1,$2,$3)",
-        chat_id,
-        sender,
-        content,
-    )
-    return "Message stored"
+async def get_alerts(state: str) -> str:
+    """Get weather alerts for a US state.
 
+    Args:
+        state: Two-letter US state code (e.g. CA, NY)
+    """
+    url = f"{NWS_API_BASE}/alerts/active/area/{state}"
+    data = await make_nws_request(url)
+
+    if not data or "features" not in data:
+        return "Unable to fetch alerts or no alerts found."
+
+    if not data["features"]:
+        return "No active alerts for this state."
+
+    alerts = [format_alert(feature) for feature in data["features"]]
+    return "\n---\n".join(alerts)
 
 @mcp.tool()
-async def list_chats(ctx: Context) -> list[str]:
-    """List all active chat IDs."""
-    pool = ctx.request_context.lifespan_context.pool
-    rows = await pool.fetch("SELECT DISTINCT chat_id FROM messages ORDER BY chat_id")
-    return [r["chat_id"] for r in rows]
+async def get_forecast(latitude: float, longitude: float) -> str:
+    """Get weather forecast for a location.
 
+    Args:
+        latitude: Latitude of the location
+        longitude: Longitude of the location
+    """
+    # First get the forecast grid endpoint
+    points_url = f"{NWS_API_BASE}/points/{latitude},{longitude}"
+    points_data = await make_nws_request(points_url)
 
-@mcp.resource("chat://{chat_id}")
-async def get_chat(chat_id: str) -> list[dict[str, Any]]:
-    """Retrieve all messages for a chat ID."""
-    ctx = mcp.get_context()
-    pool = ctx.request_context.lifespan_context.pool
-    rows = await pool.fetch(
-        "SELECT id, sender, content, created_at FROM messages WHERE chat_id=$1 ORDER BY id",
-        chat_id,
-    )
-    return [dict(row) for row in rows]
+    if not points_data:
+        return "Unable to fetch forecast data for this location."
+
+    # Get the forecast URL from the points response
+    forecast_url = points_data["properties"]["forecast"]
+    forecast_data = await make_nws_request(forecast_url)
+
+    if not forecast_data:
+        return "Unable to fetch detailed forecast."
+
+    # Format the periods into a readable forecast
+    periods = forecast_data["properties"]["periods"]
+    forecasts = []
+    for period in periods[:5]:  # Only show next 5 periods
+        forecast = f"""
+{period['name']}:
+Temperature: {period['temperature']}°{period['temperatureUnit']}
+Wind: {period['windSpeed']} {period['windDirection']}
+Forecast: {period['detailedForecast']}
+"""
+        forecasts.append(forecast)
+
+    return "\n---\n".join(forecasts)
 
 
 if __name__ == "__main__":
-    mcp.run()
+    # Initialize and run the server
+    mcp.run(transport='stdio')
