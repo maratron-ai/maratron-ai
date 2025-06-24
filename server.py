@@ -4,7 +4,7 @@ import uuid
 from mcp.server.fastmcp import FastMCP
 
 # Initialize FastMCP server focused on database utilities
-mcp = FastMCP("database")
+mcp = FastMCP("database agent", "1.0.0")
 
 # Database connection URL
 DATABASE_URL = os.getenv(
