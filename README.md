@@ -1,7 +1,8 @@
 # Maratron AI
 
-This project contains a simple FastMCP server used for demos. It exposes
-weather utilities as well as a tool to query a local PostgreSQL database.
+This project contains a simple FastMCP server used for demos. It connects
+to a local PostgreSQL database and provides utilities for inspecting and
+updating data.
 
 ## Running the server
 
@@ -21,10 +22,20 @@ postgresql://maratron:yourpassword@localhost:5432/maratrondb
 
 ## Available tools
 
-- `get_alerts(state)` – Fetch active weather alerts for a US state.
-- `get_forecast(latitude, longitude)` – Retrieve the forecast for a
-  given latitude/longitude.
+- `list_tables()` – Show all tables in the public schema.
+- `describe_table(table_name)` – List the columns for a given table.
+- `add_user(name, email)` – Insert a basic user record.
 - `list_users(limit=10)` – List user names from the database.
+- `count_rows(table)` – Show how many records exist in a table.
+- `add_run(user_id, date, duration, distance, distance_unit)` – Record a new run.
+- `list_recent_runs(limit=5)` – Display recent run summaries.
+- `get_user(user_id)` – Show a user's name and email.
+- `update_user_email(user_id, email)` – Change a user's email address.
+- `delete_user(user_id)` – Remove a user.
+- `add_shoe(user_id, name, max_distance, distance_unit)` – Track a new shoe.
+- `list_shoes(user_id, include_retired=False)` – List shoes for a user.
+- `list_runs_for_user(user_id, limit=5)` – Display a user's recent runs.
+- `db_summary()` – Show row counts for all tables.
 
 
 ## Notes
