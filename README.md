@@ -9,13 +9,21 @@ This project contains a simple [Model Context Protocol](https://modelcontextprot
    npm install
    ```
 
-2. Set PostgreSQL connection environment variables if needed (`PGHOST`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`, etc.). By default the `pg` library uses these variables.
+2. Copy `.env.example` to `.env` and fill in your PostgreSQL connection details. These variables are loaded automatically using the `dotenv` package:
+   ```bash
+   cp .env.example .env
+   # edit .env to match your database settings
+   ```
+
+   The server uses standard PostgreSQL variables (`PGHOST`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`, `PGPORT`).
 
 3. Start the server with `ts-node`:
    ```bash
    npx ts-node src/server.ts
    ```
-   The server communicates over stdio and can be used with any MCP-compatible client.
+   The server does not expose an HTTP port. It communicates over **stdin/stdout**
+   using the Model Context Protocol. Run it as a subprocess of your LLM
+   application or interact with it using an MCP-compatible CLI.
 
 ## Server Features
 
