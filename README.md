@@ -38,3 +38,12 @@ postgresql://maratron:yourpassword@localhost:5432/maratrondb
 - `db_summary()` – Show row counts for all tables.
 
 
+## Notes
+- using `uv` as python package manager
+- run `mcp dev server.py` to view mcp ui
+- restart claude desktop then should be able to see tools
+
+## Resources
+- https://modelcontextprotocol.io/introduction
+- https://github.com/modelcontextprotocol/python-sdk
+- https://modelcontextprotocol.io/quickstart/server#mac-os-linux
