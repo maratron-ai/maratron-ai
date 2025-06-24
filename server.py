@@ -1,14 +1,16 @@
 import os
-from dataclasses import dataclass
 from contextlib import asynccontextmanager
-import asyncpg
-from typing import AsyncIterator, Any
+from dataclasses import dataclass
+from typing import Any, AsyncIterator
 
-from mcp.server.fastmcp import FastMCP, Context
+import asyncpg
+from mcp.server.fastmcp import Context, FastMCP
+
 
 @dataclass
 class AppContext:
     pool: asyncpg.Pool
+
 
 async def create_pool() -> asyncpg.Pool:
     return await asyncpg.create_pool(
@@ -18,6 +20,7 @@ async def create_pool() -> asyncpg.Pool:
         password=os.getenv("PGPASSWORD", ""),
         database=os.getenv("PGDATABASE", "postgres"),
     )
+
 
 @asynccontextmanager
 async def lifespan(app: FastMCP) -> AsyncIterator[AppContext]:
@@ -38,7 +41,9 @@ async def lifespan(app: FastMCP) -> AsyncIterator[AppContext]:
     finally:
         await pool.close()
 
+
 mcp = FastMCP("Chat Server", lifespan=lifespan)
+
 
 @mcp.tool()
 async def send_message(chat_id: str, sender: str, content: str, ctx: Context) -> str:
@@ -52,6 +57,7 @@ async def send_message(chat_id: str, sender: str, content: str, ctx: Context) ->
     )
     return "Message stored"
 
+
 @mcp.tool()
 async def list_chats(ctx: Context) -> list[str]:
     """List all active chat IDs."""
@@ -59,15 +65,18 @@ async def list_chats(ctx: Context) -> list[str]:
     rows = await pool.fetch("SELECT DISTINCT chat_id FROM messages ORDER BY chat_id")
     return [r["chat_id"] for r in rows]
 
+
 @mcp.resource("chat://{chat_id}")
-async def get_chat(chat_id: str, ctx: Context) -> list[dict[str, Any]]:
+async def get_chat(chat_id: str) -> list[dict[str, Any]]:
     """Retrieve all messages for a chat ID."""
+    ctx = mcp.get_context()
     pool = ctx.request_context.lifespan_context.pool
     rows = await pool.fetch(
         "SELECT id, sender, content, created_at FROM messages WHERE chat_id=$1 ORDER BY id",
         chat_id,
     )
     return [dict(row) for row in rows]
+
 
 if __name__ == "__main__":
     mcp.run()
