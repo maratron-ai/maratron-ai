@@ -3,6 +3,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { Pool } from "pg";
+import { LLM } from "llama-node";
+import { LLamaCpp } from "llama-node/dist/llm/llama-cpp.js";
+import path from "path";
 
 const server = new McpServer({
   name: "postgres-mcp-server",
@@ -10,6 +13,21 @@ const server = new McpServer({
 });
 
 const pool = new Pool(); // uses PG env vars
+
+const llama = new LLM(LLamaCpp);
+const llamaConfig = {
+  modelPath: path.resolve(process.env.LLAMA_MODEL ?? "model.gguf"),
+  enableLogging: false,
+  nCtx: 1024,
+  seed: 0,
+  f16Kv: false,
+  logitsAll: false,
+  vocabOnly: false,
+  useMlock: false,
+  embedding: false,
+  useMmap: true,
+  nGpuLayers: 0
+};
 
 server.registerResource(
   "schema",
@@ -85,8 +103,35 @@ server.registerTool(
   }
 );
 
+server.registerTool(
+  "chat",
+  {
+    title: "LLM Chat",
+    description: "Generate a completion from the local LLM",
+    inputSchema: { prompt: z.string() }
+  },
+  async ({ prompt }) => {
+    await llama.load(llamaConfig);
+    const params = {
+      prompt,
+      nThreads: 4,
+      nTokPredict: 128,
+      topK: 40,
+      topP: 0.9,
+      temp: 0.7,
+      repeatPenalty: 1.1
+    };
+    let text = "";
+    await llama.createCompletion(params, (res) => {
+      text += res.token;
+    });
+    return { content: [{ type: "text", text }] };
+  }
+);
+
 async function main() {
   const transport = new StdioServerTransport();
+  await llama.load(llamaConfig);
   await server.connect(transport);
 }
 

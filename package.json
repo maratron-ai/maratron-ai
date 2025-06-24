@@ -17,7 +17,9 @@
     "dotenv": "^16.4.1",
     "pg": "^8.16.2",
     "ts-node": "^10.9.2",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "llama-node": "^0.1.6",
+    "@llama-node/llama-cpp": "^0.1.6"
   },
   "devDependencies": {
     "@types/pg": "^8.15.4"
