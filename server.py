@@ -167,6 +167,50 @@ async def list_users(limit: int = 10) -> str:
 
 
 @mcp.tool()
+async def find_user(user_id: str | None = None, email: str | None = None) -> str:
+    """Retrieve a user's basic information by id or email."""
+    if not user_id and not email:
+        return "Provide user_id or email."
+
+    pool = await get_pool()
+    query = 'SELECT id, name, email FROM "Users" WHERE '
+    params = []
+    if user_id:
+        query += 'id=$1'
+        params.append(user_id)
+    else:
+        query += 'email=$1'
+        params.append(email)
+
+    try:
+        row = await pool.fetchrow(query, *params)
+    except Exception as e:
+        return f"Database error: {e}"
+
+    if row is None:
+        return "User not found."
+    return f"{row['id']}: {row['name']} <{row['email']}>"
+
+
+@mcp.tool()
+async def list_user_contacts(limit: int = 20) -> str:
+    """List user ids and emails."""
+    pool = await get_pool()
+    try:
+        rows = await pool.fetch(
+            'SELECT id, email FROM "Users" ORDER BY "createdAt" DESC LIMIT $1',
+            limit,
+        )
+    except Exception as e:
+        return f"Database error: {e}"
+
+    if not rows:
+        return "No users found."
+
+    return "\n".join(f"{row['id']}: {row['email']}" for row in rows)
+
+
+@mcp.tool()
 async def get_user(user_id: str) -> str:
     """Retrieve a user's basic information."""
     pool = await get_pool()
@@ -286,6 +330,57 @@ async def list_runs_for_user(user_id: str, limit: int = 5) -> str:
         f"{row['date'].date()}: {row['distance']} {row['distanceUnit']}"
         for row in rows
     )
+
+
+@mcp.tool()
+async def list_running_plans(user_id: str) -> str:
+    """List running plans for a user."""
+    pool = await get_pool()
+    try:
+        rows = await pool.fetch(
+            'SELECT id, name, weeks, active FROM "RunningPlans" '
+            'WHERE "userId"=$1 ORDER BY "createdAt" DESC',
+            user_id,
+        )
+    except Exception as e:
+        return f"Database error: {e}"
+
+    if not rows:
+        return "No plans found."
+
+    return "\n".join(
+        f"{row['id']}: {row['name']} ({row['weeks']} weeks)" +
+        (" [active]" if row['active'] else "")
+        for row in rows
+    )
+
+
+@mcp.tool()
+async def add_running_plan(
+    user_id: str,
+    name: str,
+    weeks: int,
+    plan_data: str,
+    start_date: str | None = None,
+) -> str:
+    """Add a running plan for a user."""
+    pool = await get_pool()
+    plan_id = str(uuid.uuid4())
+    try:
+        await pool.execute(
+            'INSERT INTO "RunningPlans" (id, "userId", name, weeks, "planData", "startDate", "updatedAt") '
+            'VALUES ($1, $2, $3, $4, $5::jsonb, $6, NOW())',
+            plan_id,
+            user_id,
+            name,
+            weeks,
+            plan_data,
+            start_date,
+        )
+    except Exception as e:
+        return f"Database error: {e}"
+
+    return f"Inserted running plan with id {plan_id}."
 
 
 @mcp.tool()
