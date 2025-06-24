@@ -1,5 +1,7 @@
 from typing import Any
+import os
 import httpx
+import asyncpg
 from mcp.server.fastmcp import FastMCP
 
 # Initialize FastMCP server
@@ -8,6 +10,23 @@ mcp = FastMCP("weather")
 # Constants
 NWS_API_BASE = "https://api.weather.gov"
 USER_AGENT = "weather-app/1.0"
+
+# Database connection URL
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://maratron:yourpassword@localhost:5432/maratrondb",
+)
+
+# Connection pool placeholder
+DB_POOL: asyncpg.Pool | None = None
+
+
+async def get_pool() -> asyncpg.Pool:
+    """Get or create the asyncpg connection pool."""
+    global DB_POOL
+    if DB_POOL is None:
+        DB_POOL = await asyncpg.create_pool(DATABASE_URL)
+    return DB_POOL
 
 
 async def make_nws_request(url: str) -> dict[str, Any] | None:
@@ -90,6 +109,26 @@ Forecast: {period['detailedForecast']}
         forecasts.append(forecast)
 
     return "\n---\n".join(forecasts)
+
+
+@mcp.tool()
+async def list_users(limit: int = 10) -> str:
+    """List user names from the local database.
+
+    Args:
+        limit: Maximum number of users to return.
+    """
+    pool = await get_pool()
+    try:
+        rows = await pool.fetch('SELECT name FROM "Users" LIMIT $1', limit)
+    except Exception as e:
+        return f"Database error: {e}"
+
+    if not rows:
+        return "No users found."
+
+    names = [row["name"] for row in rows]
+    return "\n".join(names)
 
 
 if __name__ == "__main__":
