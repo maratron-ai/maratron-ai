@@ -27,3 +27,12 @@ postgresql://maratron:yourpassword@localhost:5432/maratrondb
 - `list_users(limit=10)` – List user names from the database.
 
 
+## Notes
+- using `uv` as python package manager
+- run `mcp dev server.py` to view mcp ui
+- restart claude desktop then should be able to see tools
+
+## Resources
+- https://modelcontextprotocol.io/introduction
+- https://github.com/modelcontextprotocol/python-sdk
+- https://modelcontextprotocol.io/quickstart/server#mac-os-linux
