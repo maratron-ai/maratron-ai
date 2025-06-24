@@ -166,6 +166,156 @@ async def list_users(limit: int = 10) -> str:
     return "\n".join(names)
 
 
+@mcp.tool()
+async def get_user(user_id: str) -> str:
+    """Retrieve a user's basic information."""
+    pool = await get_pool()
+    try:
+        row = await pool.fetchrow(
+            'SELECT name, email FROM "Users" WHERE id=$1',
+            user_id,
+        )
+    except Exception as e:
+        return f"Database error: {e}"
+
+    if row is None:
+        return "User not found."
+    return f"{row['name']} <{row['email']}>"
+
+
+@mcp.tool()
+async def update_user_email(user_id: str, email: str) -> str:
+    """Update a user's email address."""
+    pool = await get_pool()
+    try:
+        result = await pool.execute(
+            'UPDATE "Users" SET email=$1, "updatedAt"=NOW() WHERE id=$2',
+            email,
+            user_id,
+        )
+    except Exception as e:
+        return f"Database error: {e}"
+
+    if result.endswith("0"):
+        return "User not found."
+    return "User updated."
+
+
+@mcp.tool()
+async def delete_user(user_id: str) -> str:
+    """Delete a user by id."""
+    pool = await get_pool()
+    try:
+        result = await pool.execute('DELETE FROM "Users" WHERE id=$1', user_id)
+    except Exception as e:
+        return f"Database error: {e}"
+
+    if result.endswith("0"):
+        return "User not found."
+    return "User deleted."
+
+
+@mcp.tool()
+async def add_shoe(
+    user_id: str,
+    name: str,
+    max_distance: float,
+    distance_unit: str = "miles",
+) -> str:
+    """Insert a new shoe for a user."""
+    pool = await get_pool()
+    shoe_id = str(uuid.uuid4())
+    try:
+        await pool.execute(
+            'INSERT INTO "Shoes" (id, name, "maxDistance", "distanceUnit", '
+            '"updatedAt", "userId") '
+            'VALUES ($1, $2, $3, $4, NOW(), $5)',
+            shoe_id,
+            name,
+            max_distance,
+            distance_unit,
+            user_id,
+        )
+    except Exception as e:
+        return f"Database error: {e}"
+
+    return f"Inserted shoe with id {shoe_id}."
+
+
+@mcp.tool()
+async def list_shoes(user_id: str, include_retired: bool = False) -> str:
+    """List shoes for a user."""
+    pool = await get_pool()
+    query = (
+        'SELECT id, name, retired FROM "Shoes" WHERE "userId"=$1'
+        + ("" if include_retired else " AND retired=false")
+        + ' ORDER BY "createdAt" DESC'
+    )
+    try:
+        rows = await pool.fetch(query, user_id)
+    except Exception as e:
+        return f"Database error: {e}"
+
+    if not rows:
+        return "No shoes found."
+
+    return "\n".join(
+        f"{row['id']}: {row['name']}{' (retired)' if row['retired'] else ''}"
+        for row in rows
+    )
+
+
+@mcp.tool()
+async def list_runs_for_user(user_id: str, limit: int = 5) -> str:
+    """List recent runs for a specific user."""
+    pool = await get_pool()
+    try:
+        rows = await pool.fetch(
+            'SELECT date, distance, "distanceUnit" FROM "Runs" '
+            'WHERE "userId"=$1 ORDER BY date DESC LIMIT $2',
+            user_id,
+            limit,
+        )
+    except Exception as e:
+        return f"Database error: {e}"
+
+    if not rows:
+        return "No runs found."
+
+    return "\n".join(
+        f"{row['date'].date()}: {row['distance']} {row['distanceUnit']}"
+        for row in rows
+    )
+
+
+@mcp.tool()
+async def db_summary() -> str:
+    """Return row counts for all tables."""
+    pool = await get_pool()
+    try:
+        tables = await pool.fetch(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema='public'"
+        )
+    except Exception as e:
+        return f"Database error: {e}"
+
+    lines = []
+    for row in tables:
+        tname = row["table_name"]
+        try:
+            ident = _quote_ident(tname)
+            count_row = await pool.fetchrow(
+                f'SELECT COUNT(*) AS cnt FROM {ident}'
+            )
+            count = count_row["cnt"] if count_row else 0
+        except Exception:
+            count = "error"
+        lines.append(f"{tname}: {count}")
+
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     # Initialize and run the server
     mcp.run(transport='stdio')

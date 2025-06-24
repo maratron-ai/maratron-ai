@@ -29,5 +29,12 @@ postgresql://maratron:yourpassword@localhost:5432/maratrondb
 - `count_rows(table)` – Show how many records exist in a table.
 - `add_run(user_id, date, duration, distance, distance_unit)` – Record a new run.
 - `list_recent_runs(limit=5)` – Display recent run summaries.
+- `get_user(user_id)` – Show a user's name and email.
+- `update_user_email(user_id, email)` – Change a user's email address.
+- `delete_user(user_id)` – Remove a user.
+- `add_shoe(user_id, name, max_distance, distance_unit)` – Track a new shoe.
+- `list_shoes(user_id, include_retired=False)` – List shoes for a user.
+- `list_runs_for_user(user_id, limit=5)` – Display a user's recent runs.
+- `db_summary()` – Show row counts for all tables.
 
 
